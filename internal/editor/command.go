@@ -40,11 +40,11 @@ func NewCommandRegistry(ed *Editor) *CommandRegistry {
 // All returns all registered commands.
 func (r *CommandRegistry) All() []Command { return r.commands }
 
-// Find looks up a command by ID.
+// Find looks up a command by ID and returns a pointer to it.
 func (r *CommandRegistry) Find(id string) *Command {
-	for _, c := range r.commands {
-		if c.ID == id {
-			return &c
+	for i := range r.commands {
+		if r.commands[i].ID == id {
+			return &r.commands[i]
 		}
 	}
 	return nil

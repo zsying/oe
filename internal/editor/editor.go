@@ -52,7 +52,11 @@ func (e *Editor) cmdOpen() error {
 
 func (e *Editor) cmdSave() error {
 	if e.Buffer.Filename() == "" {
-		return e.cmdSaveAs()
+		// Use the overridden handler from the command registry
+		if cmd := e.Commands.Find("file.saveAs"); cmd != nil {
+			return cmd.Handler()
+		}
+		return nil
 	}
 	return e.SaveFile()
 }
@@ -83,8 +87,10 @@ func (e *Editor) cmdCut() error {
 	if err := e.Clip.Write(text); err != nil {
 		return err
 	}
+	// Save cursor position before Delete() clears it
+	sx, sy := e.Selection.StartX, e.Selection.StartY
 	e.Selection.Delete(e.Buffer)
-	e.Cursor.X, e.Cursor.Y = e.Selection.StartX, e.Selection.StartY
+	e.Cursor.X, e.Cursor.Y = sx, sy
 	return nil
 }
 
@@ -106,9 +112,9 @@ func (e *Editor) cmdPaste() error {
 	}
 	// Delete selection if active before pasting
 	if e.Selection.Active() {
+		sx, sy := e.Selection.StartX, e.Selection.StartY
 		e.Selection.Delete(e.Buffer)
-		e.Cursor.X, e.Cursor.Y = e.Selection.StartX, e.Selection.StartY
-		e.Selection.Clear()
+		e.Cursor.X, e.Cursor.Y = sx, sy
 	}
 	e.SaveSnapshot()
 	x, y := e.Buffer.InsertText(text, e.Cursor.X, e.Cursor.Y)
@@ -121,9 +127,9 @@ func (e *Editor) cmdDelete() error {
 		return nil
 	}
 	if e.Selection.Active() {
+		sx, sy := e.Selection.StartX, e.Selection.StartY
 		e.Selection.Delete(e.Buffer)
-		e.Cursor.X, e.Cursor.Y = e.Selection.StartX, e.Selection.StartY
-		e.Selection.Clear()
+		e.Cursor.X, e.Cursor.Y = sx, sy
 		return nil
 	}
 	e.Buffer.DeleteForward(e.Cursor.X, e.Cursor.Y)

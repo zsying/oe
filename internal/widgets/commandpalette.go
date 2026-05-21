@@ -7,13 +7,16 @@ import (
 	"github.com/user/editor/internal/editor"
 )
 
+const maxVisibleResults = 10
+
 // CommandPalette implements Ctrl+P command search overlay.
 type CommandPalette struct {
-	Ed      *editor.Editor
-	Active  bool
-	query   []rune
-	results []editor.Command
-	selIdx  int
+	Ed           *editor.Editor
+	Active       bool
+	query        []rune
+	results      []editor.Command
+	selIdx       int
+	scrollOffset int
 }
 
 // NewCommandPalette creates a new command palette.
@@ -27,6 +30,7 @@ func (cp *CommandPalette) Toggle() {
 	if cp.Active {
 		cp.query = nil
 		cp.selIdx = 0
+		cp.scrollOffset = 0
 		cp.results = cp.filter()
 	}
 }
@@ -48,25 +52,54 @@ func (cp *CommandPalette) HandleKey(ev *tcell.EventKey) bool {
 		}
 		return true
 	case tcell.KeyUp:
+		n := len(cp.results)
+		if n == 0 {
+			return true
+		}
 		if cp.selIdx > 0 {
 			cp.selIdx--
+		} else {
+			// Wrap to bottom
+			cp.selIdx = n - 1
+			cp.scrollOffset = n - maxVisibleResults
+			if cp.scrollOffset < 0 {
+				cp.scrollOffset = 0
+			}
+		}
+		// Scroll if above visible area
+		if cp.selIdx < cp.scrollOffset {
+			cp.scrollOffset = cp.selIdx
 		}
 		return true
 	case tcell.KeyDown:
-		if cp.selIdx < len(cp.results)-1 {
+		n := len(cp.results)
+		if n == 0 {
+			return true
+		}
+		if cp.selIdx < n-1 {
 			cp.selIdx++
+		} else {
+			// Wrap to top
+			cp.selIdx = 0
+			cp.scrollOffset = 0
+		}
+		// Scroll if below visible area
+		if cp.selIdx >= cp.scrollOffset+maxVisibleResults {
+			cp.scrollOffset = cp.selIdx - maxVisibleResults + 1
 		}
 		return true
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
 		if len(cp.query) > 0 {
 			cp.query = cp.query[:len(cp.query)-1]
 			cp.selIdx = 0
+			cp.scrollOffset = 0
 			cp.results = cp.filter()
 		}
 		return true
 	case tcell.KeyRune:
 		cp.query = append(cp.query, ev.Rune())
 		cp.selIdx = 0
+		cp.scrollOffset = 0
 		cp.results = cp.filter()
 		return true
 	}
@@ -107,14 +140,20 @@ func (cp *CommandPalette) Render(s tcell.Screen, w, h int) {
 		return
 	}
 
-	const paletteW = 45
-	listH := len(cp.results) + 3
-	if listH > 14 {
-		listH = 14
+	listLen := len(cp.results)
+	visCount := maxVisibleResults
+	if visCount > listLen {
+		visCount = listLen
 	}
-	if listH < 4 {
-		listH = 4
+	totalH := visCount + 3 // input line + 1 blank + results + 1 blank bottom
+	if totalH < 4 {
+		totalH = 4
 	}
+	if totalH > h-2 {
+		totalH = h - 2
+	}
+
+	const paletteW = 48
 	paletteX := (w - paletteW) / 2
 	paletteY := h / 4
 
@@ -126,10 +165,9 @@ func (cp *CommandPalette) Render(s tcell.Screen, w, h int) {
 		Foreground(tcell.ColorWhite)
 
 	// Draw background rectangle
-	for py := 0; py < listH; py++ {
+	for py := 0; py < totalH; py++ {
 		for px := 0; px < paletteW; px++ {
-			ch := ' '
-			s.SetCell(paletteX+px, paletteY+py, bgStyle, ch)
+			s.SetCell(paletteX+px, paletteY+py, bgStyle, ' ')
 		}
 	}
 
@@ -145,18 +183,30 @@ func (cp *CommandPalette) Render(s tcell.Screen, w, h int) {
 		s.SetCell(cursorX, paletteY, bgStyle.Reverse(true), ' ')
 	}
 
-	// Draw results
-	for i, cmd := range cp.results {
-		if i >= listH-2 {
-			break
-		}
+	// Draw visible results with scrolling
+	startIdx := cp.scrollOffset
+	endIdx := startIdx + visCount
+	if endIdx > listLen {
+		endIdx = listLen
+	}
+
+	for i := startIdx; i < endIdx; i++ {
+		cmd := cp.results[i]
 		st := bgStyle
 		if i == cp.selIdx {
 			st = selStyle
 		}
+		row := paletteY + 2 + (i - startIdx)
+
+		// Fill entire row with background (selected or normal)
+		for x := 0; x < paletteW; x++ {
+			s.SetCell(paletteX+x, row, st, ' ')
+		}
+
+		// Draw command name
 		text := "  " + cmd.Title
 		for j, ch := range text {
-			s.SetCell(paletteX+j, paletteY+2+i, st, ch)
+			s.SetCell(paletteX+j, row, st, ch)
 		}
 		// Shortcut on right
 		if cmd.Shortcut != "" {
@@ -164,9 +214,24 @@ func (cp *CommandPalette) Render(s tcell.Screen, w, h int) {
 			scX := paletteX + paletteW - len([]rune(sc)) - 2
 			if scX > paletteX {
 				for j, ch := range sc {
-					s.SetCell(scX+j, paletteY+2+i, st, ch)
+					s.SetCell(scX+j, row, st, ch)
 				}
 			}
+		}
+	}
+
+	// Scroll indicator
+	if listLen > visCount {
+		scrollText := ""
+		if cp.scrollOffset > 0 && cp.scrollOffset+visCount < listLen {
+			scrollText = " ▲▼ "
+		} else if cp.scrollOffset > 0 {
+			scrollText = " ▲ "
+		} else {
+			scrollText = " ▼ "
+		}
+		for j, ch := range scrollText {
+			s.SetCell(paletteX+paletteW-len([]rune(scrollText))+j, paletteY+totalH-1, bgStyle, ch)
 		}
 	}
 }

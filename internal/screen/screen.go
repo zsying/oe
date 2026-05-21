@@ -1,7 +1,11 @@
 package screen
 
 import (
+	"os"
+	"path/filepath"
+
 	"github.com/gdamore/tcell/v2"
+	"github.com/mattn/go-runewidth"
 	"github.com/user/editor/internal/buffer"
 	"github.com/user/editor/internal/editor"
 	"github.com/user/editor/internal/widgets"
@@ -17,9 +21,9 @@ type Screen struct {
 	scrollOffset int
 	palette      Palette
 	statusBar    *widgets.StatusBar
-	menuBar      *widgets.MenuBar
 	cmdPalette   *widgets.CommandPalette
 	searchBar    *widgets.SearchBar
+	fileBrowser  *widgets.FileBrowser
 	dialog       *widgets.Dialog
 	dragging     bool // whether mouse drag-selection is active
 }
@@ -47,24 +51,59 @@ func New(ed *editor.Editor) (*Screen, error) {
 		palette: DefaultPalette(),
 	}
 	sc.statusBar = widgets.NewStatusBar(ed)
-	sc.menuBar = widgets.NewMenuBar(ed)
 	sc.cmdPalette = widgets.NewCommandPalette(ed)
 	sc.searchBar = widgets.NewSearchBar(ed)
+	sc.fileBrowser = widgets.NewFileBrowser(ed)
 	sc.dialog = widgets.NewDialog()
 
 	// Override dialog-requiring command handlers
 	ed.Commands.Find("file.open").Handler = func() error {
-		sc.dialog.ShowInput("Open File", "Enter file path:", "", func(path string, ok bool) {
-			if ok && path != "" {
-				ed.OpenFile(path)
+		doOpen := func(path string) {
+			if err := ed.OpenFile(path); err != nil {
+				sc.dialog.Show("Error", "Failed to open file: "+err.Error(), nil)
 			}
-		})
+		}
+		tryOpen := func() {
+			sc.fileBrowser.Open(func(path string) {
+				doOpen(path)
+			})
+		}
+		if ed.Buffer.Modified() {
+			sc.dialog.ShowThreeWay("Unsaved Changes",
+				"Current file has unsaved changes. Save before opening another file?",
+				func(action string) {
+					switch action {
+					case "save":
+						ed.Save()
+						tryOpen()
+					case "discard":
+						tryOpen()
+					case "cancel":
+						// do nothing
+					}
+				})
+		} else {
+			tryOpen()
+		}
 		return nil
 	}
 	ed.Commands.Find("file.saveAs").Handler = func() error {
-		sc.dialog.ShowInput("Save As", "Enter file path:", ed.Buffer.Filename(), func(path string, ok bool) {
-			if ok && path != "" {
-				ed.SaveFileAs(path)
+		sc.fileBrowser.Open(func(path string) {
+			// Check if file already exists
+			if _, err := os.Stat(path); err == nil {
+				sc.dialog.Show("Overwrite?",
+					"File \""+filepath.Base(path)+"\" already exists. Overwrite?",
+					func(_ string, ok bool) {
+						if ok {
+							if err := ed.SaveFileAs(path); err != nil {
+								sc.dialog.Show("Error", "Failed to save: "+err.Error(), nil)
+							}
+						}
+					})
+			} else {
+				if err := ed.SaveFileAs(path); err != nil {
+					sc.dialog.Show("Error", "Failed to save: "+err.Error(), nil)
+				}
 			}
 		})
 		return nil
@@ -102,12 +141,18 @@ func New(ed *editor.Editor) (*Screen, error) {
 	}
 	ed.Commands.Find("app.quit").Handler = func() error {
 		if ed.Buffer.Modified() {
-			sc.dialog.Show("Unsaved Changes", "Save changes before quitting?",
-				func(_ string, ok bool) {
-					if ok {
+			sc.dialog.ShowThreeWay("Unsaved Changes",
+				"File has unsaved changes. Save before quitting?",
+				func(action string) {
+					switch action {
+					case "save":
 						ed.Save()
+						sc.quit = true
+					case "discard":
+						sc.quit = true
+					case "cancel":
+						// do nothing — stay in editor
 					}
-					sc.quit = true
 				})
 		} else {
 			sc.quit = true
@@ -174,7 +219,12 @@ func (sc *Screen) ContentStartY() int {
 
 // handleKey processes keyboard events.
 func (sc *Screen) handleKey(ev *tcell.EventKey) {
-	// Route to dialog first if active
+	// Route to file browser first if active
+	if sc.fileBrowser.Active {
+		sc.fileBrowser.HandleKey(ev)
+		return
+	}
+	// Route to dialog next if active
 	if sc.dialog.Active {
 		sc.dialog.HandleKey(ev)
 		return
@@ -221,18 +271,19 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 		return
 	}
 
-	// Close menu on Escape
-	if ev.Key() == tcell.KeyEscape {
-		sc.menuBar.Close()
-	}
-
 	// Global shortcuts
 	switch ev.Key() {
 	case tcell.KeyCtrlQ:
-		sc.quit = true
+		ed.Commands.Find("app.quit").Handler()
 		return
 	case tcell.KeyCtrlE:
 		ed.ToggleMode()
+		return
+	case tcell.KeyCtrlO:
+		ed.Commands.Find("file.open").Handler()
+		return
+	case tcell.KeyCtrlZ:
+		ed.Commands.Find("edit.undo").Handler()
 		return
 	case tcell.KeyCtrlF:
 		sc.searchBar.ToggleFind()
@@ -299,7 +350,8 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 	}
 }
 
-// screenToBuffer converts screen coordinates to buffer coordinates.
+// screenToBuffer converts screen coordinates to buffer (rune-index) coordinates.
+// Uses runewidth to account for wide characters (CJK, emoji, etc).
 func (sc *Screen) screenToBuffer(sx, sy int) (bx, by int) {
 	startY := sc.ContentStartY()
 	by = sy - startY + sc.scrollOffset
@@ -310,25 +362,40 @@ func (sc *Screen) screenToBuffer(sx, sy int) (bx, by int) {
 		by = sc.ed.Buffer.Lines() - 1
 	}
 
-	bx = sx
-	numWidth := 0
+	// Subtract line number column width
+	col := sx
 	if sc.ed.ShowLineNum {
 		n := sc.ed.Buffer.Lines()
+		wn := 0
 		for n > 0 {
 			n /= 10
-			numWidth++
+			wn++
 		}
-		if numWidth < 2 {
-			numWidth = 2
+		if wn < 2 {
+			wn = 2
 		}
-		bx -= numWidth + 2
+		col -= wn + 2
 	}
-	if bx < 0 {
-		bx = 0
+	if col < 0 {
+		col = 0
 	}
-	if bx > sc.ed.Buffer.LineLen(by) {
-		bx = sc.ed.Buffer.LineLen(by)
+
+	// Walk runes in the line accumulating visual width
+	// NOTE: for range over string yields byte index, so use a separate rune counter
+	line := sc.ed.Buffer.Line(by)
+	acc := 0
+	runeIdx := 0
+	for _, ch := range line {
+		w := runewidth.RuneWidth(ch)
+		if col >= acc && col < acc+w {
+			bx = runeIdx
+			return
+		}
+		acc += w
+		runeIdx++
 	}
+	// Past end of line
+	bx = runeIdx
 	return
 }
 
@@ -347,27 +414,6 @@ func (sc *Screen) handleMouse(ev *tcell.EventMouse) {
 			sc.scrollOffset++
 		}
 	case btn&tcell.Button1 != 0:
-		// Check menu bar click first
-		if cmdID, handled := sc.menuBar.HandleMouseClick(x, y); handled {
-			if cmdID != "" {
-				if cmd := sc.ed.Commands.Find(cmdID); cmd != nil {
-					cmd.Handler()
-				}
-			}
-			return
-		}
-		// Check submenu click
-		if sc.menuBar.IsOpen() {
-			if cmdID, handled := sc.menuBar.HandleSubmenuClick(x, y); handled {
-				if cmdID != "" {
-					if cmd := sc.ed.Commands.Find(cmdID); cmd != nil {
-						cmd.Handler()
-					}
-				}
-				return
-			}
-		}
-
 		// Mouse in edit area
 		startY := sc.ContentStartY()
 		if y < startY {

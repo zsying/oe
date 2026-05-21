@@ -83,10 +83,11 @@ func (b *Buffer) DeleteBackward(x, y int) (newX, newY int) {
 		return x - 1, y
 	}
 	if y > 0 {
+		prevLen := len([]rune(b.lines[y-1]))
 		b.lines[y-1] += b.lines[y]
 		b.lines = append(b.lines[:y], b.lines[y+1:]...)
 		b.modified = true
-		return len([]rune(b.lines[y-1])), y - 1
+		return prevLen, y - 1
 	}
 	return 0, 0
 }

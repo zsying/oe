@@ -37,14 +37,25 @@ func (sb *StatusBar) Render(s tcell.Screen, y, width int, style tcell.Style) {
 		fileType = " " + fileType
 	}
 
+	hint := " Ctrl+P:命令面板 "
 	text := fmt.Sprintf(" %s  %s%s  %s  UTF-8%s",
 		modeStr, filename, fileType, posStr, modifiedStr)
 
 	runes := []rune(text)
-	for i := 0; i < width; i++ {
+	hintRunes := []rune(hint)
+	maxW := width
+
+	for i := 0; i < maxW; i++ {
 		ch := ' '
 		if i < len(runes) {
 			ch = runes[i]
+		}
+		// Draw hint at right side if there's room
+		if i >= maxW-len(hintRunes) && i < maxW && len(hintRunes)+len(runes) < maxW-4 {
+			hi := i - (maxW - len(hintRunes))
+			if hi >= 0 && hi < len(hintRunes) {
+				ch = hintRunes[hi]
+			}
 		}
 		s.SetCell(i, y, style, ch)
 	}

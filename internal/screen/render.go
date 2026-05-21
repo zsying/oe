@@ -2,6 +2,8 @@ package screen
 
 import (
 	"fmt"
+
+	"github.com/mattn/go-runewidth"
 )
 
 // Render draws the entire editor UI.
@@ -10,10 +12,7 @@ func (sc *Screen) Render() {
 	ed := sc.ed
 	buf := ed.Buffer
 
-	// --- 1. Menu bar ---
-	sc.menuBar.Render(sc.tcell, 0, sc.width, sc.palette.MenuBar, sc.palette.MenuSel)
-
-	// --- 2. Editor content ---
+	// --- 1. Editor content ---
 	numWidth := 0
 	if ed.ShowLineNum {
 		n := buf.Lines()
@@ -40,7 +39,7 @@ func (sc *Screen) Render() {
 			for i, ch := range numStr {
 				sc.tcell.SetCell(col+i, startY+y, sc.palette.LineNum, ch)
 			}
-			col += len([]rune(numStr))
+			col += runewidth.StringWidth(numStr)
 		}
 
 		// Separator after line numbers
@@ -49,29 +48,33 @@ func (sc *Screen) Render() {
 			col++
 		}
 
-		// Line content
-		for i, ch := range line {
+		// Line content — use runewidth to account for wide chars
+		for _, ch := range line {
 			style := sc.palette.Default
-			// Selection highlighting (proper coords will be handled in Task 9)
-			if ed.Selection.Active() && ed.Selection.Contains(ed.Cursor.X, ed.Cursor.Y) {
-				// Placeholder — selection rendering refined later
+			w := runewidth.RuneWidth(ch)
+			if col+w <= sc.width {
+				sc.tcell.SetCell(col, startY+y, style, ch)
 			}
-			if col+i < sc.width {
-				sc.tcell.SetCell(col+i, startY+y, style, ch)
-			}
+			col += w
 		}
 
 		// Fill rest of line
-		for x := col + len([]rune(line)); x < sc.width; x++ {
-			sc.tcell.SetCell(x, startY+y, sc.palette.Default, ' ')
+		for col < sc.width {
+			if col < sc.width {
+				sc.tcell.SetCell(col, startY+y, sc.palette.Default, ' ')
+			}
+			col++
 		}
 	}
 
-	// --- 3. Status bar ---
+	// --- 2. Status bar ---
 	sc.statusBar.Render(sc.tcell, sc.height-1, sc.width, sc.palette.StatusBar)
 
-	// --- 4. Search bar overlay ---
+	// --- 3. Search bar overlay ---
 	sc.searchBar.Render(sc.tcell, sc.width, sc.height)
+
+	// --- 4. File browser overlay ---
+	sc.fileBrowser.Render(sc.tcell, sc.width, sc.height)
 
 	// --- 5. Dialog overlay ---
 	sc.dialog.Render(sc.tcell, sc.width, sc.height)
@@ -79,11 +82,19 @@ func (sc *Screen) Render() {
 	// --- 6. Command palette overlay ---
 	sc.cmdPalette.Render(sc.tcell, sc.width, sc.height)
 
-	// --- 6. Cursor ---
-	cx := ed.Cursor.X
+	// --- 6. Cursor — calculate visual column using runewidth ---
+	line := buf.Line(ed.Cursor.Y)
+	cx := 0
+	runeIdx := 0
+	for _, ch := range line {
+		if runeIdx >= ed.Cursor.X {
+			break
+		}
+		cx += runewidth.RuneWidth(ch)
+		runeIdx++
+	}
 	cy := ed.Cursor.Y - sc.scrollOffset + startY
 	if ed.ShowLineNum {
-		// Calculate line number width
 		n := buf.Lines()
 		wn := 0
 		for n > 0 {
@@ -104,5 +115,3 @@ func (sc *Screen) Render() {
 
 	sc.tcell.Sync()
 }
-
-
