@@ -8,7 +8,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
-	"github.com/user/editor/internal/editor"
+	"github.com/zsying/oe/internal/editor"
 )
 
 const maxFileResults = 12

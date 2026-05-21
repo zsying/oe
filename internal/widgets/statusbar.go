@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/user/editor/internal/editor"
+	"github.com/zsying/oe/internal/editor"
 )
 
 // StatusBar renders the bottom status line.

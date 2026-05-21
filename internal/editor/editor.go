@@ -1,8 +1,8 @@
 package editor
 
 import (
-	"github.com/user/editor/internal/buffer"
-	"github.com/user/editor/internal/clipboard"
+	"github.com/zsying/oe/internal/buffer"
+	"github.com/zsying/oe/internal/clipboard"
 )
 
 const MaxUndo = 100

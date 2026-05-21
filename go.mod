@@ -1,4 +1,4 @@
-module github.com/user/editor
+module github.com/zsying/oe
 
 go 1.24.0
 

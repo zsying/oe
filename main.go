@@ -4,8 +4,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/user/editor/internal/editor"
-	"github.com/user/editor/internal/screen"
+	"github.com/zsying/oe/internal/editor"
+	"github.com/zsying/oe/internal/screen"
 )
 
 func main() {

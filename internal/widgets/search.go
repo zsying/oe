@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
-	"github.com/user/editor/internal/editor"
+	"github.com/zsying/oe/internal/editor"
 )
 
 // SearchBar implements find-as-you-type search.
