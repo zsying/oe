@@ -3,6 +3,7 @@ package widgets
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -83,17 +84,68 @@ func (fb *FileBrowser) refresh() {
 
 func (fb *FileBrowser) prependUpDir() {
 	parent := filepath.Dir(fb.cwd)
-	// Don't add [up-dir] if we're already at filesystem root
-	if fb.cwd != parent {
-		fb.entries = append([]fileEntry{
-			{name: "[up-dir]", isDir: true, fullPath: parent, upDir: true},
-		}, fb.entries...)
+	if fb.cwd == parent {
+		// At filesystem root — on Windows, show available drives
+		if runtime.GOOS == "windows" {
+			drives := listAvailableDrives()
+			if len(drives) > 0 {
+				fb.entries = append(drives, fb.entries...)
+			}
+		}
+		return
 	}
+	// Normal parent directory
+	fb.entries = append([]fileEntry{
+		{name: "[up-dir]", isDir: true, fullPath: parent, upDir: true},
+	}, fb.entries...)
+}
+
+// listAvailableDrives returns a list of available drive roots on Windows.
+func listAvailableDrives() []fileEntry {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	var drives []fileEntry
+	for _, letter := range "ABCDEFGHIJKLMNOPQRSTUVWXYZ" {
+		root := string(letter) + ":\\"
+		// Check if drive exists (just try to read it)
+		if _, err := os.ReadDir(root); err == nil {
+			drives = append(drives, fileEntry{
+				name:     string(letter) + ":",
+				isDir:    true,
+				fullPath: root,
+			})
+		}
+	}
+	return drives
 }
 
 func (fb *FileBrowser) listDir(dir, filter string) {
+	// On Windows, when at a drive root, list available drives
+	if runtime.GOOS == "windows" && len(dir) == 3 && dir[1] == ':' && dir[2] == '\\' {
+		// Single drive root like C:\ - list normally, no special handling needed
+	} else if runtime.GOOS == "windows" && fb.cwd == dir && filepath.Dir(dir) == dir {
+		// At virtual root - show drive list. This won't normally trigger since
+		// drives are individual roots. But we handle it here.
+	}
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
+		// If can't read (e.g., empty drive), provide empty list
+		if runtime.GOOS == "windows" && len(dir) >= 2 && dir[1] == ':' {
+			fb.entries = listAvailableDrives()
+			// Filter by filter letter
+			if filter != "" {
+				var filtered []fileEntry
+				for _, d := range fb.entries {
+					if fuzzyMatchFile(d.name, strings.ToLower(filter)) {
+						filtered = append(filtered, d)
+					}
+				}
+				fb.entries = filtered
+			}
+			return
+		}
 		fb.entries = nil
 		return
 	}
@@ -132,6 +184,36 @@ func fuzzyMatchFile(text, query string) bool {
 	return strings.Contains(strings.ToLower(text), query)
 }
 
+// resolvePath expands ~ to home, resolves relative paths, and cleans the result.
+func resolvePath(cwd, input string) string {
+	if input == "" {
+		return cwd
+	}
+	// Expand ~ to home directory
+	if strings.HasPrefix(input, "~") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			if input == "~" {
+				return home
+			}
+			input = filepath.Join(home, input[1:])
+		}
+	}
+	// Handle absolute paths
+	if filepath.IsAbs(input) {
+		return filepath.Clean(input)
+	}
+	// Handle Windows drive letters (e.g., "d:/path" or "d:" or "c:")
+	if len(input) >= 2 && input[1] == ':' {
+		if len(input) == 2 {
+			input = input + string(filepath.Separator) // "d:" → "d:\"
+		}
+		return filepath.Clean(input)
+	}
+	// Relative path: join with cwd
+	return filepath.Clean(filepath.Join(cwd, input))
+}
+
 // HandleKey processes key events with dual-focus logic.
 func (fb *FileBrowser) HandleKey(ev *tcell.EventKey) bool {
 	if !fb.Active {
@@ -156,13 +238,10 @@ func (fb *FileBrowser) handleKeyInput(ev *tcell.EventKey) bool {
 	case tcell.KeyEnter:
 		q := strings.TrimSpace(string(fb.query))
 		if q == "" {
-			return true // nothing typed, do nothing
+			return true
 		}
-		path := q
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(fb.cwd, path)
-		}
-		// Check if path is a directory — navigate into it instead
+		path := resolvePath(fb.cwd, q)
+		// Check if path is a directory — navigate into it
 		if info, err := os.Stat(path); err == nil && info.IsDir() {
 			fb.cwd = path
 			fb.query = nil
@@ -276,8 +355,16 @@ func (fb *FileBrowser) handleKeyList(ev *tcell.EventKey) bool {
 		return true
 
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
-		// Backspace in list mode: switch to input (don't delete)
-		fb.focusOnList = false
+		// Backspace in list mode: navigate to parent directory
+		parent := filepath.Dir(fb.cwd)
+		if parent != fb.cwd {
+			fb.cwd = parent
+			fb.query = nil
+			fb.selIdx = 0
+			fb.scrollOffset = 0
+			fb.focusOnList = false
+			fb.refresh()
+		}
 		return true
 	}
 	return false

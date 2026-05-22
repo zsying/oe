@@ -56,7 +56,7 @@ func (sb *SearchBar) HandleKey(ev *tcell.EventKey) bool {
 		sb.Active = false
 		return true
 	case tcell.KeyEnter:
-		sb.FindNext()
+		sb.FindNext() // cycle to next match
 		return true
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
 		if len(sb.query) > 0 {
@@ -65,74 +65,13 @@ func (sb *SearchBar) HandleKey(ev *tcell.EventKey) bool {
 		return true
 	case tcell.KeyRune:
 		sb.query = append(sb.query, ev.Rune())
-		sb.FindNext()
+		sb.FindFirst() // find first match from cursor
 		return true
 	}
 	return false
 }
 
-// FindNext searches for the next match, cycling through the buffer.
-// Uses rune-aware searching for correct CJK handling.
-func (sb *SearchBar) FindNext() bool {
-	q := string(sb.query)
-	if q == "" {
-		return false
-	}
-	sb.LastQuery = q
-
-	qLower := strings.ToLower(q)
-	qRunes := []rune(qLower)
-	qLen := len(qRunes)
-	buf := sb.Ed.Buffer
-	cursor := sb.Ed.Cursor
-
-	// Search forward: start from cursor.Y, skip current match
-	for y := cursor.Y; y < buf.Lines(); y++ {
-		line := buf.Line(y)
-		lineRunes := []rune(strings.ToLower(line))
-		startX := 0
-		if y == cursor.Y {
-			startX = cursor.X + 1 // skip current position to advance
-		}
-		if startX >= len(lineRunes) {
-			continue
-		}
-		// Search in rune slice
-		idx := runeIndex(lineRunes[startX:], qRunes)
-		if idx >= 0 {
-			cursor.X = startX + idx
-			cursor.Y = y
-			sb.Ed.Selection.Begin(cursor.X, cursor.Y)
-			sb.Ed.Selection.Extend(cursor.X+qLen, cursor.Y)
-			return true
-		}
-	}
-	// Wrap around: search from beginning up to cursor.Y
-	for y := 0; y <= cursor.Y; y++ {
-		line := buf.Line(y)
-		lineRunes := []rune(strings.ToLower(line))
-		startX := 0
-		endX := len(lineRunes)
-		if y == cursor.Y {
-			endX = cursor.X
-		}
-		if startX >= endX || endX-startX < qLen {
-			continue
-		}
-		idx := runeIndex(lineRunes[startX:endX], qRunes)
-		if idx >= 0 {
-			cursor.X = startX + idx
-			cursor.Y = y
-			sb.Ed.Selection.Begin(cursor.X, cursor.Y)
-			sb.Ed.Selection.Extend(cursor.X+qLen, cursor.Y)
-			return true
-		}
-	}
-	return false
-}
-
 // runeIndex finds the first occurrence of needle in haystack (both rune slices).
-// Returns the rune index or -1.
 func runeIndex(haystack, needle []rune) int {
 	if len(needle) == 0 {
 		return 0
@@ -150,6 +89,95 @@ func runeIndex(haystack, needle []rune) int {
 		}
 	}
 	return -1
+}
+
+// search finds the query in lineRunes starting from startX (rune index).
+// Returns the rune index of the match, or -1.
+func searchInLine(lineRunes []rune, queryRunes []rune, startX int) int {
+	if startX >= len(lineRunes) || len(queryRunes) == 0 {
+		return -1
+	}
+	idx := runeIndex(lineRunes[startX:], queryRunes)
+	if idx < 0 {
+		return -1
+	}
+	return startX + idx
+}
+
+// FindFirst searches from cursor.X (find first match at or after cursor).
+func (sb *SearchBar) FindFirst() bool {
+	return sb.findFrom(cursorAt)
+}
+
+// FindNext searches from cursor.X+1 (skip current, find next match).
+func (sb *SearchBar) FindNext() bool {
+	return sb.findFrom(cursorNext)
+}
+
+type findMode int
+
+const (
+	cursorAt   findMode = iota // search from current cursor position
+	cursorNext                 // search from cursor + 1 (skip current match)
+)
+
+func (sb *SearchBar) findFrom(mode findMode) bool {
+	q := string(sb.query)
+	if q == "" {
+		return false
+	}
+	sb.LastQuery = q
+
+	qRunes := []rune(strings.ToLower(q))
+	qLen := len(qRunes)
+	buf := sb.Ed.Buffer
+	cursor := sb.Ed.Cursor
+
+	// Search forward from cursor.Y
+	for y := cursor.Y; y < buf.Lines(); y++ {
+		lineRunes := []rune(strings.ToLower(buf.Line(y)))
+		startX := 0
+		if y == cursor.Y {
+			if mode == cursorNext {
+				startX = cursor.X + 1
+			} else {
+				startX = cursor.X
+			}
+		}
+		idx := searchInLine(lineRunes, qRunes, startX)
+		if idx >= 0 {
+			cursor.X = idx
+			cursor.Y = y
+			sb.Ed.Selection.Begin(cursor.X, cursor.Y)
+			sb.Ed.Selection.Extend(cursor.X+qLen, cursor.Y)
+			return true
+		}
+	}
+	// Wrap around: search from beginning up to cursor.Y
+	for y := 0; y <= cursor.Y; y++ {
+		lineRunes := []rune(strings.ToLower(buf.Line(y)))
+		startX := 0
+		endX := len(lineRunes)
+		if y == cursor.Y {
+			if mode == cursorNext {
+				endX = cursor.X
+			} else {
+				endX = cursor.X + 1
+			}
+		}
+		if startX >= endX || endX-startX < qLen {
+			continue
+		}
+		idx := runeIndex(lineRunes[startX:endX], qRunes)
+		if idx >= 0 {
+			cursor.X = startX + idx
+			cursor.Y = y
+			sb.Ed.Selection.Begin(cursor.X, cursor.Y)
+			sb.Ed.Selection.Extend(cursor.X+qLen, cursor.Y)
+			return true
+		}
+	}
+	return false
 }
 
 // Query returns the current search query string.
