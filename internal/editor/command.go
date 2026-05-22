@@ -33,6 +33,7 @@ func NewCommandRegistry(ed *Editor) *CommandRegistry {
 		{ID: "find.find", Title: "Find…", Shortcut: "Ctrl+F", Handler: ed.cmdFind},
 		{ID: "find.next", Title: "Find Next", Shortcut: "F3", Handler: ed.cmdFindNext},
 		{ID: "find.replace", Title: "Replace…", Shortcut: "Ctrl+H", Handler: ed.cmdReplace},
+		{ID: "help.keyboard", Title: "Keyboard Shortcuts", Shortcut: "", Handler: ed.cmdHelpKeyboard},
 	}
 	return r
 }

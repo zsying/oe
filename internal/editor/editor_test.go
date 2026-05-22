@@ -302,8 +302,8 @@ func TestCommandRegistryFindModifyReflectsInAll(t *testing.T) {
 func TestCommandRegistryAll(t *testing.T) {
 	e := New()
 	all := e.Commands.All()
-	if len(all) != 16 {
-		t.Fatalf("expected 16 commands, got %d", len(all))
+	if len(all) != 17 {
+		t.Fatalf("expected 17 commands, got %d", len(all))
 	}
 
 	// Check specific commands exist
@@ -311,7 +311,7 @@ func TestCommandRegistryAll(t *testing.T) {
 	for _, c := range all {
 		ids[c.ID] = true
 	}
-	required := []string{"file.open", "file.save", "edit.cut", "edit.copy", "edit.paste", "app.quit"}
+	required := []string{"file.open", "file.save", "edit.cut", "edit.copy", "edit.paste", "app.quit", "help.keyboard"}
 	for _, id := range required {
 		if !ids[id] {
 			t.Fatalf("missing required command: %s", id)

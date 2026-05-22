@@ -79,7 +79,10 @@ func (sc *Screen) Render() {
 	// --- 5. Dialog overlay ---
 	sc.dialog.Render(sc.tcell, sc.width, sc.height)
 
-	// --- 6. Command palette overlay ---
+	// --- 6. Help overlay ---
+	sc.helpOverlay.Render(sc.tcell, sc.width, sc.height)
+
+	// --- 7. Command palette overlay ---
 	sc.cmdPalette.Render(sc.tcell, sc.width, sc.height)
 
 	// --- 6. Cursor — calculate visual column using runewidth ---

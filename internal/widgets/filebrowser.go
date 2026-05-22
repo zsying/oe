@@ -154,7 +154,6 @@ func (fb *FileBrowser) HandleKey(ev *tcell.EventKey) bool {
 func (fb *FileBrowser) handleKeyInput(ev *tcell.EventKey) bool {
 	switch ev.Key() {
 	case tcell.KeyEnter:
-		// Use the typed text combined with current directory as the path
 		q := strings.TrimSpace(string(fb.query))
 		if q == "" {
 			return true // nothing typed, do nothing
@@ -162,6 +161,15 @@ func (fb *FileBrowser) handleKeyInput(ev *tcell.EventKey) bool {
 		path := q
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(fb.cwd, path)
+		}
+		// Check if path is a directory — navigate into it instead
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			fb.cwd = path
+			fb.query = nil
+			fb.selIdx = 0
+			fb.scrollOffset = 0
+			fb.refresh()
+			return true
 		}
 		fb.Active = false
 		if fb.callback != nil {

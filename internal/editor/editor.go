@@ -158,6 +158,7 @@ func (e *Editor) cmdToggleMode() error {
 func (e *Editor) cmdFind() error         { return nil }
 func (e *Editor) cmdFindNext() error     { return nil }
 func (e *Editor) cmdReplace() error      { return nil }
+func (e *Editor) cmdHelpKeyboard() error { return nil }
 
 // --- Snapshot helpers ---
 

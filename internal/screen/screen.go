@@ -24,6 +24,7 @@ type Screen struct {
 	cmdPalette   *widgets.CommandPalette
 	searchBar    *widgets.SearchBar
 	fileBrowser  *widgets.FileBrowser
+	helpOverlay  *widgets.HelpOverlay
 	dialog       *widgets.Dialog
 	dragging     bool // whether mouse drag-selection is active
 }
@@ -54,6 +55,7 @@ func New(ed *editor.Editor) (*Screen, error) {
 	sc.cmdPalette = widgets.NewCommandPalette(ed)
 	sc.searchBar = widgets.NewSearchBar(ed)
 	sc.fileBrowser = widgets.NewFileBrowser(ed)
+	sc.helpOverlay = widgets.NewHelpOverlay()
 	sc.dialog = widgets.NewDialog()
 
 	// Override dialog-requiring command handlers
@@ -137,6 +139,10 @@ func New(ed *editor.Editor) (*Screen, error) {
 	}
 	ed.Commands.Find("find.replace").Handler = func() error {
 		sc.searchBar.ToggleReplace()
+		return nil
+	}
+	ed.Commands.Find("help.keyboard").Handler = func() error {
+		sc.helpOverlay.Toggle()
 		return nil
 	}
 	ed.Commands.Find("app.quit").Handler = func() error {
@@ -224,6 +230,11 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 		sc.fileBrowser.HandleKey(ev)
 		return
 	}
+	// Route to help overlay next if active
+	if sc.helpOverlay.Active {
+		sc.helpOverlay.HandleKey(ev)
+		return
+	}
 	// Route to dialog next if active
 	if sc.dialog.Active {
 		sc.dialog.HandleKey(ev)
@@ -243,31 +254,59 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 	ed := sc.ed
 	buf := ed.Buffer
 
-	// Navigation keys (both modes)
+	// Navigation keys — Shift extends selection
+	shift := ev.Modifiers() == tcell.ModShift
+
 	switch ev.Key() {
 	case tcell.KeyLeft:
+		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
 		ed.Cursor.MoveLeft(buf)
+		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
 	case tcell.KeyRight:
+		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
 		ed.Cursor.MoveRight(buf)
+		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
 	case tcell.KeyUp:
+		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
 		ed.Cursor.MoveUp(buf)
+		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
 	case tcell.KeyDown:
+		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
 		ed.Cursor.MoveDown(buf)
+		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
 	case tcell.KeyHome:
+		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
 		ed.Cursor.MoveToStartOfLine()
+		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
 	case tcell.KeyEnd:
+		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
 		ed.Cursor.MoveToEndOfLine(buf)
+		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
 	case tcell.KeyPgUp:
+		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
 		ed.Cursor.MovePageUp(buf, sc.ContentHeight())
+		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
 	case tcell.KeyPgDn:
+		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
 		ed.Cursor.MovePageDown(buf, sc.ContentHeight())
+		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
+		return
+	}
+
+	// View mode: Space = PgDn, Shift+Space = PgUp
+	if ed.Mode == editor.ModeView && (ev.Key() == tcell.KeyRune && ev.Rune() == ' ') {
+		if shift {
+			ed.Cursor.MovePageUp(buf, sc.ContentHeight())
+		} else {
+			ed.Cursor.MovePageDown(buf, sc.ContentHeight())
+		}
 		return
 	}
 
