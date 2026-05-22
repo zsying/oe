@@ -406,13 +406,15 @@ func (fb *FileBrowser) Render(s tcell.Screen, w, h int) {
 	pathStyle := bgStyle.Foreground(tcell.ColorGray)
 
 	// --- Background box ---
-	// Clear one extra cell on the left for wide-character bleed-through
+	// Clear extra cells on the left for wide-character bleed-through.
+	// Chinese chars occupy 2 cells; clearing 1 cell isn't enough if the
+	// char starts at fx-2 (spans fx-2..fx-1). Clear 2 to be safe.
 	for py := 0; py < totalH; py++ {
-		if fx > 0 {
-			s.SetCell(fx-1, fy+py, bgStyle, ' ')
-		}
-		for px := 0; px < fw; px++ {
-			s.SetCell(fx+px, fy+py, bgStyle, ' ')
+		for dx := -2; dx < fw; dx++ {
+			x := fx + dx
+			if x >= 0 && x < w {
+				s.SetCell(x, fy+py, bgStyle, ' ')
+			}
 		}
 	}
 

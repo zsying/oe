@@ -90,10 +90,13 @@ func (hlp *HelpOverlay) Render(s tcell.Screen, w, scrH int) {
 	titleStyle := bgStyle.Reverse(true)
 	sectionStyle := bgStyle.Foreground(tcell.ColorDodgerBlue)
 
-	// Draw box
+	// Draw box — clear 2 extra cells left for wide char bleed
 	for py := 0; py < boxH; py++ {
-		for px := 0; px < boxW; px++ {
-			s.SetCell(boxX+px, boxY+py, bgStyle, ' ')
+		for dx := -2; dx < boxW; dx++ {
+			x := boxX + dx
+			if x >= 0 && x < w {
+				s.SetCell(x, boxY+py, bgStyle, ' ')
+			}
 		}
 	}
 

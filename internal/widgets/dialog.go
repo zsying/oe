@@ -174,10 +174,13 @@ func (d *Dialog) Render(s tcell.Screen, w, h int) {
 		Background(tcell.ColorWhite).
 		Foreground(tcell.ColorBlack)
 
-	// Draw background box
+	// Draw background box — clear 2 extra cells left for wide char bleed
 	for py := 0; py < dialogH; py++ {
-		for px := 0; px < dialogW; px++ {
-			s.SetCell(dialogX+px, dialogY+py, bgStyle, ' ')
+		for dx := -2; dx < dialogW; dx++ {
+			x := dialogX + dx
+			if x >= 0 && x < w {
+				s.SetCell(x, dialogY+py, bgStyle, ' ')
+			}
 		}
 	}
 

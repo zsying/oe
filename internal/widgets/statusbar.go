@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/mattn/go-runewidth"
 	"github.com/zsying/oe/internal/editor"
 )
 
@@ -18,12 +19,12 @@ func NewStatusBar(ed *editor.Editor) *StatusBar {
 	return &StatusBar{Ed: ed}
 }
 
-// Render draws the status bar at the given row.
+// Render draws the status bar at the given row, using runewidth for CJK support.
 func (sb *StatusBar) Render(s tcell.Screen, y, width int, style tcell.Style) {
 	ed := sb.Ed
 	buf := ed.Buffer
 
-	modeStr := fmt.Sprintf("[%s] Ctrl+E切换", ed.Mode)
+	modeStr := fmt.Sprintf("[%s] Ctrl+E", ed.Mode)
 	filename := filepath.Base(buf.Filename())
 	if filename == "" {
 		filename = "(untitled)"
@@ -34,32 +35,55 @@ func (sb *StatusBar) Render(s tcell.Screen, y, width int, style tcell.Style) {
 		modifiedStr = " ●"
 	}
 
-	hint := " Ctrl+P:命令面板 "
-	text := fmt.Sprintf(" %s  %s  %s%s",
+	hint := " Ctrl+P:面板 "
+	leftText := fmt.Sprintf(" %s  %s  %s%s",
 		modeStr, filename, posStr, modifiedStr)
 
-	leftRunes := []rune(text)
-	hintRunes := []rune(hint)
+	// Use runewidth for accurate display width of CJK characters
+	hintWidth := runewidth.StringWidth(hint)
 
 	// Reserve space for hint on the right
-	hintW := len(hintRunes)
-	textMax := width - hintW
+	textMax := width - hintWidth
 	if textMax < 10 {
 		textMax = 10
 	}
 
-	for i := 0; i < width; i++ {
-		ch := ' '
-		if i < textMax && i < len(leftRunes) {
-			ch = leftRunes[i]
+	// Draw left text (truncated if too long)
+	col := 0
+	for _, ch := range leftText {
+		if col >= textMax {
+			break
 		}
-		// Draw hint on the right
-		if i >= width-hintW {
-			hi := i - (width - hintW)
-			if hi >= 0 && hi < len(hintRunes) {
-				ch = hintRunes[hi]
-			}
+		w := runewidth.RuneWidth(ch)
+		if col+w <= textMax {
+			s.SetCell(col, y, style, ch)
+			col += w
+		} else {
+			// Partial character - fill remaining with something
+			break
 		}
-		s.SetCell(i, y, style, ch)
+	}
+
+	// Fill between left and hint with spaces
+	for col < width-hintWidth {
+		s.SetCell(col, y, style, ' ')
+		col++
+	}
+
+	// Draw hint on the right
+	hintCol := 0
+	for _, ch := range hint {
+		if col >= width {
+			break
+		}
+		s.SetCell(col, y, style, ch)
+		col++
+		hintCol++
+	}
+
+	// Fill remaining
+	for col < width {
+		s.SetCell(col, y, style, ' ')
+		col++
 	}
 }
