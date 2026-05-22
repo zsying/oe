@@ -173,8 +173,11 @@ func (cp *CommandPalette) Render(s tcell.Screen, w, h int) {
 		Background(tcell.ColorCornflowerBlue).
 		Foreground(tcell.ColorWhite)
 
-	// Draw background rectangle
+	// Draw background rectangle (with extra cell on left for wide-character bleed)
 	for py := 0; py < totalH; py++ {
+		if paletteX > 0 {
+			s.SetCell(paletteX-1, paletteY+py, bgStyle, ' ')
+		}
 		for px := 0; px < paletteW; px++ {
 			s.SetCell(paletteX+px, paletteY+py, bgStyle, ' ')
 		}

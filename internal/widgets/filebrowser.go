@@ -406,7 +406,11 @@ func (fb *FileBrowser) Render(s tcell.Screen, w, h int) {
 	pathStyle := bgStyle.Foreground(tcell.ColorGray)
 
 	// --- Background box ---
+	// Clear one extra cell on the left for wide-character bleed-through
 	for py := 0; py < totalH; py++ {
+		if fx > 0 {
+			s.SetCell(fx-1, fy+py, bgStyle, ' ')
+		}
 		for px := 0; px < fw; px++ {
 			s.SetCell(fx+px, fy+py, bgStyle, ' ')
 		}

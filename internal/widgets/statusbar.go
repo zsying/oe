@@ -2,6 +2,7 @@ package widgets
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/zsying/oe/internal/editor"
@@ -22,8 +23,8 @@ func (sb *StatusBar) Render(s tcell.Screen, y, width int, style tcell.Style) {
 	ed := sb.Ed
 	buf := ed.Buffer
 
-	modeStr := fmt.Sprintf("[%s]", ed.Mode)
-	filename := buf.Filename()
+	modeStr := fmt.Sprintf("[%s] Ctrl+E切换", ed.Mode)
+	filename := filepath.Base(buf.Filename())
 	if filename == "" {
 		filename = "(untitled)"
 	}
@@ -32,27 +33,29 @@ func (sb *StatusBar) Render(s tcell.Screen, y, width int, style tcell.Style) {
 	if buf.Modified() {
 		modifiedStr = " ●"
 	}
-	fileType := buf.FileType()
-	if fileType != "" {
-		fileType = " " + fileType
-	}
 
 	hint := " Ctrl+P:命令面板 "
-	text := fmt.Sprintf(" %s  %s%s  %s  UTF-8%s",
-		modeStr, filename, fileType, posStr, modifiedStr)
+	text := fmt.Sprintf(" %s  %s  %s%s",
+		modeStr, filename, posStr, modifiedStr)
 
-	runes := []rune(text)
+	leftRunes := []rune(text)
 	hintRunes := []rune(hint)
-	maxW := width
 
-	for i := 0; i < maxW; i++ {
+	// Reserve space for hint on the right
+	hintW := len(hintRunes)
+	textMax := width - hintW
+	if textMax < 10 {
+		textMax = 10
+	}
+
+	for i := 0; i < width; i++ {
 		ch := ' '
-		if i < len(runes) {
-			ch = runes[i]
+		if i < textMax && i < len(leftRunes) {
+			ch = leftRunes[i]
 		}
-		// Draw hint at right side if there's room
-		if i >= maxW-len(hintRunes) && i < maxW && len(hintRunes)+len(runes) < maxW-4 {
-			hi := i - (maxW - len(hintRunes))
+		// Draw hint on the right
+		if i >= width-hintW {
+			hi := i - (width - hintW)
 			if hi >= 0 && hi < len(hintRunes) {
 				ch = hintRunes[hi]
 			}
