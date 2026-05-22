@@ -115,8 +115,17 @@ func (cp *CommandPalette) filter() []editor.Command {
 	qLower := strings.ToLower(q)
 	var result []editor.Command
 	for _, cmd := range all {
+		// Match by title (fuzzy)
 		if fuzzyMatch(cmd.Title, qLower) {
 			result = append(result, cmd)
+			continue
+		}
+		// Match by ID parts: e.g. "search" matches "find.find" → "find"
+		for _, part := range strings.Split(cmd.ID, ".") {
+			if fuzzyMatch(part, qLower) {
+				result = append(result, cmd)
+				break
+			}
 		}
 	}
 	return result

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/mattn/go-runewidth"
+	"github.com/zsying/oe/internal/editor"
 )
 
 // Render draws the entire editor UI.
@@ -49,9 +50,14 @@ func (sc *Screen) Render() {
 		}
 
 		// Line content — use runewidth + selection highlight
+		// View mode: dim text
+		baseStyle := sc.palette.Default
+		if ed.Mode == editor.ModeView {
+			baseStyle = sc.palette.ViewDim
+		}
 		runeIdx := 0
 		for _, ch := range line {
-			style := sc.palette.Default
+			style := baseStyle
 			if ed.Selection.Active() && ed.Selection.Contains(runeIdx, actualY) {
 				style = sc.palette.Selection
 			}
@@ -115,7 +121,12 @@ func (sc *Screen) Render() {
 		cx += wn + 2 // number width + separator '│' + space
 	}
 
-	if cy >= startY && cy < startY+contentH {
+	// Hide cursor when any modal overlay is active
+	modalActive := sc.fileBrowser.Active || sc.dialog.Active ||
+		sc.cmdPalette.Active || sc.searchBar.Active || sc.helpOverlay.Active
+	if modalActive {
+		sc.tcell.HideCursor()
+	} else if cy >= startY && cy < startY+contentH {
 		sc.tcell.ShowCursor(cx, cy)
 	} else {
 		sc.tcell.HideCursor()

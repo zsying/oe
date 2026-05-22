@@ -254,6 +254,11 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 	ed := sc.ed
 	buf := ed.Buffer
 
+	// Esc clears selection when no modal is active
+	if ev.Key() == tcell.KeyEscape {
+		sc.ed.Selection.Clear()
+	}
+
 	// Navigation keys — Shift extends selection
 	shift := ev.Modifiers() == tcell.ModShift
 
@@ -328,9 +333,11 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 		sc.searchBar.ToggleFind()
 		return
 	case tcell.KeyF3:
-		if sc.searchBar.Query() != "" {
-			sc.searchBar.ToggleFind()
+		if sc.searchBar.Active {
 			sc.searchBar.FindNext()
+		} else if sc.searchBar.FindNextFromLast() {
+			// found match, search bar stays closed
+		} else {
 			sc.searchBar.ToggleFind()
 		}
 		return
