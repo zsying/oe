@@ -19,12 +19,12 @@ func NewStatusBar(ed *editor.Editor) *StatusBar {
 	return &StatusBar{Ed: ed}
 }
 
-// Render draws the status bar at the given row, using runewidth for CJK support.
+// Render draws the status bar at the given row — everything left-aligned.
 func (sb *StatusBar) Render(s tcell.Screen, y, width int, style tcell.Style) {
 	ed := sb.Ed
 	buf := ed.Buffer
 
-	modeStr := fmt.Sprintf("[%s] Ctrl+E", ed.Mode)
+	modeStr := fmt.Sprintf("[%s]", ed.Mode)
 	filename := filepath.Base(buf.Filename())
 	if filename == "" {
 		filename = "(untitled)"
@@ -35,53 +35,23 @@ func (sb *StatusBar) Render(s tcell.Screen, y, width int, style tcell.Style) {
 		modifiedStr = " ●"
 	}
 
-	hint := " Ctrl+P:面板 "
-	leftText := fmt.Sprintf(" %s  %s  %s%s",
+	text := fmt.Sprintf(" %s  Ctrl+E编辑  %s  %s%s  Ctrl+P面板",
 		modeStr, filename, posStr, modifiedStr)
 
-	// Use runewidth for accurate display width of CJK characters
-	hintWidth := runewidth.StringWidth(hint)
-
-	// Reserve space for hint on the right
-	textMax := width - hintWidth
-	if textMax < 10 {
-		textMax = 10
-	}
-
-	// Draw left text (truncated if too long)
 	col := 0
-	for _, ch := range leftText {
-		if col >= textMax {
-			break
-		}
-		w := runewidth.RuneWidth(ch)
-		if col+w <= textMax {
-			s.SetCell(col, y, style, ch)
-			col += w
-		} else {
-			// Partial character - fill remaining with something
-			break
-		}
-	}
-
-	// Fill between left and hint with spaces
-	for col < width-hintWidth {
-		s.SetCell(col, y, style, ' ')
-		col++
-	}
-
-	// Draw hint on the right
-	hintCol := 0
-	for _, ch := range hint {
+	for _, ch := range text {
 		if col >= width {
 			break
 		}
-		s.SetCell(col, y, style, ch)
-		col++
-		hintCol++
+		w := runewidth.RuneWidth(ch)
+		if col+w <= width {
+			s.SetCell(col, y, style, ch)
+			col += w
+		} else {
+			break
+		}
 	}
-
-	// Fill remaining
+	// Fill rest with spaces
 	for col < width {
 		s.SetCell(col, y, style, ' ')
 		col++
