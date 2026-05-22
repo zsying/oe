@@ -48,14 +48,19 @@ func (sc *Screen) Render() {
 			col++
 		}
 
-		// Line content — use runewidth to account for wide chars
+		// Line content — use runewidth + selection highlight
+		runeIdx := 0
 		for _, ch := range line {
 			style := sc.palette.Default
+			if ed.Selection.Active() && ed.Selection.Contains(runeIdx, actualY) {
+				style = sc.palette.Selection
+			}
 			w := runewidth.RuneWidth(ch)
 			if col+w <= sc.width {
 				sc.tcell.SetCell(col, startY+y, style, ch)
 			}
 			col += w
+			runeIdx++
 		}
 
 		// Fill rest of line
