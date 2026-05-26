@@ -259,47 +259,55 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 		sc.ed.Selection.Clear()
 	}
 
-	// Navigation keys — Shift extends selection
-	shift := ev.Modifiers() == tcell.ModShift
+	// Navigation keys — Shift extends selection (use bitwise AND, some terminals report different modifier masks)
+	shift := ev.Modifiers()&tcell.ModShift != 0
 
 	switch ev.Key() {
 	case tcell.KeyLeft:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if shift && !sc.ed.Selection.Active() { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if !shift { sc.ed.Selection.Clear() }
 		ed.Cursor.MoveLeft(buf)
 		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
 	case tcell.KeyRight:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if shift && !sc.ed.Selection.Active() { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if !shift { sc.ed.Selection.Clear() }
 		ed.Cursor.MoveRight(buf)
 		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
 	case tcell.KeyUp:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if shift && !sc.ed.Selection.Active() { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if !shift { sc.ed.Selection.Clear() }
 		ed.Cursor.MoveUp(buf)
 		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
 	case tcell.KeyDown:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if shift && !sc.ed.Selection.Active() { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if !shift { sc.ed.Selection.Clear() }
 		ed.Cursor.MoveDown(buf)
 		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
 	case tcell.KeyHome:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if shift && !sc.ed.Selection.Active() { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if !shift { sc.ed.Selection.Clear() }
 		ed.Cursor.MoveToStartOfLine()
 		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
 	case tcell.KeyEnd:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if shift && !sc.ed.Selection.Active() { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if !shift { sc.ed.Selection.Clear() }
 		ed.Cursor.MoveToEndOfLine(buf)
 		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
 	case tcell.KeyPgUp:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if shift && !sc.ed.Selection.Active() { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if !shift { sc.ed.Selection.Clear() }
 		ed.Cursor.MovePageUp(buf, sc.ContentHeight())
 		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
 	case tcell.KeyPgDn:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if shift && !sc.ed.Selection.Active() { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if !shift { sc.ed.Selection.Clear() }
 		ed.Cursor.MovePageDown(buf, sc.ContentHeight())
 		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
 		return
