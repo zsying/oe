@@ -372,24 +372,42 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 		return
 	}
 
-	// Edit mode keys
+	// Edit mode keys — all operations respect active selection (replace or delete)
 	if ed.Mode == editor.ModeEdit {
+		// Helper: if selection is active, delete it and reposition cursor to selection start.
+		deleteIfSelected := func() bool {
+			if ed.Selection.Active() {
+				sx, sy := ed.Selection.StartX, ed.Selection.StartY
+				ed.Selection.Delete(buf)
+				ed.Cursor.X, ed.Cursor.Y = sx, sy
+				return true
+			}
+			return false
+		}
+
 		switch ev.Key() {
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
 			ed.SaveSnapshot()
-			x, y := buf.DeleteBackward(ed.Cursor.X, ed.Cursor.Y)
-			ed.Cursor.X, ed.Cursor.Y = x, y
+			if !deleteIfSelected() {
+				x, y := buf.DeleteBackward(ed.Cursor.X, ed.Cursor.Y)
+				ed.Cursor.X, ed.Cursor.Y = x, y
+			}
 			return
 		case tcell.KeyDelete:
 			ed.SaveSnapshot()
-			buf.DeleteForward(ed.Cursor.X, ed.Cursor.Y)
+			if !deleteIfSelected() {
+				buf.DeleteForward(ed.Cursor.X, ed.Cursor.Y)
+			}
 			return
 		case tcell.KeyEnter:
 			ed.SaveSnapshot()
+			deleteIfSelected()
 			x, y := buf.NewLine(ed.Cursor.X, ed.Cursor.Y)
 			ed.Cursor.X, ed.Cursor.Y = x, y
 			return
 		case tcell.KeyTab:
+			ed.SaveSnapshot()
+			deleteIfSelected()
 			for i := 0; i < buf.TabWidth(); i++ {
 				buf.Insert(' ', ed.Cursor.X, ed.Cursor.Y)
 				ed.Cursor.X++
@@ -397,6 +415,7 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 			return
 		case tcell.KeyRune:
 			ed.SaveSnapshot()
+			deleteIfSelected()
 			buf.Insert(ev.Rune(), ed.Cursor.X, ed.Cursor.Y)
 			ed.Cursor.X++
 			return
