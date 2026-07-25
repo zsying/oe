@@ -18,7 +18,8 @@ type Screen struct {
 	quit         bool
 	width        int
 	height       int
-	scrollOffset int
+	scrollOffset int // index of the first visible visual row (soft-wrapped)
+	vm           []visualRow
 	palette      Palette
 	statusBar    *widgets.StatusBar
 	cmdPalette   *widgets.CommandPalette
@@ -174,16 +175,22 @@ func (sc *Screen) Quit() { sc.quit = true }
 // Close restores the terminal.
 func (sc *Screen) Close() { sc.tcell.Fini() }
 
-// ensureCursorVisible adjusts scrollOffset to keep the cursor in view.
+// ensureCursorVisible adjusts scrollOffset (in visual rows) to keep the
+// cursor's visual row within the visible content area.
 func (sc *Screen) ensureCursorVisible() {
 	contentH := sc.ContentHeight()
-	cursorY := sc.ed.Cursor.Y
-
-	if cursorY < sc.scrollOffset {
-		sc.scrollOffset = cursorY
+	cvr := sc.cursorVisualRow()
+	if cvr < 0 {
+		return
 	}
-	if cursorY >= sc.scrollOffset+contentH {
-		sc.scrollOffset = cursorY - contentH + 1
+	if cvr < sc.scrollOffset {
+		sc.scrollOffset = cvr
+	}
+	if cvr >= sc.scrollOffset+contentH {
+		sc.scrollOffset = cvr - contentH + 1
+	}
+	if sc.scrollOffset < 0 {
+		sc.scrollOffset = 0
 	}
 }
 
@@ -198,6 +205,7 @@ func (sc *Screen) Run() error {
 	}
 
 	for !sc.quit {
+		sc.vm = sc.buildWrapMap()
 		sc.ensureCursorVisible()
 		sc.Render()
 		ev := sc.tcell.PollEvent()
@@ -259,29 +267,35 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 		sc.ed.Selection.Clear()
 	}
 
-	// Navigation keys — Shift extends selection
-	shift := ev.Modifiers() == tcell.ModShift
+	// Navigation keys — Shift extends selection, Ctrl moves by word
+	mods := ev.Modifiers()
+	shift := mods&tcell.ModShift != 0
+	ctrl := mods&tcell.ModCtrl != 0
 
 	switch ev.Key() {
 	case tcell.KeyLeft:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
-		ed.Cursor.MoveLeft(buf)
-		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
+		sc.moveWithSelection(shift, func() {
+			if ctrl {
+				ed.Cursor.MoveWordLeft(buf)
+			} else {
+				ed.Cursor.MoveLeft(buf)
+			}
+		})
 		return
 	case tcell.KeyRight:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
-		ed.Cursor.MoveRight(buf)
-		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
+		sc.moveWithSelection(shift, func() {
+			if ctrl {
+				ed.Cursor.MoveWordRight(buf)
+			} else {
+				ed.Cursor.MoveRight(buf)
+			}
+		})
 		return
 	case tcell.KeyUp:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
-		ed.Cursor.MoveUp(buf)
-		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
+		sc.moveWithSelection(shift, func() { ed.Cursor.MoveUp(buf) })
 		return
 	case tcell.KeyDown:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
-		ed.Cursor.MoveDown(buf)
-		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
+		sc.moveWithSelection(shift, func() { ed.Cursor.MoveDown(buf) })
 		return
 	case tcell.KeyHome:
 		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
@@ -396,52 +410,72 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 	}
 }
 
+// moveWithSelection applies a cursor move while maintaining a Shift-extended
+// selection. It begins the selection only on the FIRST Shift press so the anchor
+// stays fixed (calling Begin on every step would make the anchor follow the
+// cursor and the previously selected range would be lost). When moving without
+// Shift, any active selection is cleared.
+func (sc *Screen) moveWithSelection(shift bool, move func()) {
+	if shift {
+		if !sc.ed.Selection.Active() {
+			sc.ed.Selection.Begin(sc.ed.Cursor.X, sc.ed.Cursor.Y)
+		}
+		move()
+		sc.ed.Selection.Extend(sc.ed.Cursor.X, sc.ed.Cursor.Y)
+	} else {
+		sc.ed.Selection.Clear()
+		move()
+	}
+}
+
 // screenToBuffer converts screen coordinates to buffer (rune-index) coordinates.
-// Uses runewidth to account for wide characters (CJK, emoji, etc).
+// Uses runewidth to account for wide characters (CJK, emoji, etc), and maps the
+// screen row through the soft-wrap map so wrapped visual rows resolve correctly.
 func (sc *Screen) screenToBuffer(sx, sy int) (bx, by int) {
 	startY := sc.ContentStartY()
-	by = sy - startY + sc.scrollOffset
-	if by < 0 {
+	vr := sy - startY + sc.scrollOffset
+	if vr < 0 {
+		vr = 0
+	}
+	if len(sc.vm) == 0 {
 		by = 0
+		bx = 0
+		return
 	}
-	if by >= sc.ed.Buffer.Lines() {
-		by = sc.ed.Buffer.Lines() - 1
+	if vr >= len(sc.vm) {
+		vr = len(sc.vm) - 1
 	}
+	vrow := sc.vm[vr]
+	by = vrow.line
 
 	// Subtract line number column width
-	col := sx
-	if sc.ed.ShowLineNum {
-		n := sc.ed.Buffer.Lines()
-		wn := 0
-		for n > 0 {
-			n /= 10
-			wn++
-		}
-		if wn < 2 {
-			wn = 2
-		}
-		col -= wn + 2
-	}
+	col := sx - sc.gutterWidth()
 	if col < 0 {
 		col = 0
 	}
 
-	// Walk runes in the line accumulating visual width
-	// NOTE: for range over string yields byte index, so use a separate rune counter
+	// Walk runes within this visual row's segment, accumulating visual width.
 	line := sc.ed.Buffer.Line(by)
 	acc := 0
-	runeIdx := 0
+	ri := 0
 	for _, ch := range line {
+		if ri < vrow.start {
+			ri++
+			continue
+		}
+		if ri >= vrow.end {
+			break
+		}
 		w := runewidth.RuneWidth(ch)
 		if col >= acc && col < acc+w {
-			bx = runeIdx
+			bx = ri
 			return
 		}
 		acc += w
-		runeIdx++
+		ri++
 	}
-	// Past end of line
-	bx = runeIdx
+	// Past end of this segment (click in the trailing gutter of the row).
+	bx = vrow.end
 	return
 }
 
@@ -456,7 +490,7 @@ func (sc *Screen) handleMouse(ev *tcell.EventMouse) {
 			sc.scrollOffset--
 		}
 	case btn&tcell.WheelDown != 0:
-		if sc.scrollOffset < sc.ed.Buffer.Lines()-sc.ContentHeight() {
+		if len(sc.vm) > sc.ContentHeight() && sc.scrollOffset < len(sc.vm)-sc.ContentHeight() {
 			sc.scrollOffset++
 		}
 	case btn&tcell.Button1 != 0:

@@ -1,5 +1,8 @@
 
+
 # outpu
 oe
 *.exe
 *.dll
+
+.workbuddy/

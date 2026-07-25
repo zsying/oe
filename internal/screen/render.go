@@ -28,37 +28,52 @@ func (sc *Screen) Render() {
 
 	contentH := sc.ContentHeight()
 	startY := sc.ContentStartY()
+	totalRows := len(sc.vm)
 
-	for y := 0; y < contentH && y+sc.scrollOffset < buf.Lines(); y++ {
-		actualY := y + sc.scrollOffset
-		line := buf.Line(actualY)
+	for y := 0; y < contentH; y++ {
+		row := y + sc.scrollOffset
+		if row >= totalRows {
+			break
+		}
+		v := sc.vm[row]
+		line := buf.Line(v.line)
 
-		// Line number
+		// Line number gutter (shown only on the first wrapped segment of a line)
 		col := 0
 		if ed.ShowLineNum {
-			numStr := fmt.Sprintf("%*d ", numWidth, actualY+1)
-			for i, ch := range numStr {
-				sc.tcell.SetCell(col+i, startY+y, sc.palette.LineNum, ch)
+			if v.start == 0 {
+				numStr := fmt.Sprintf("%*d ", numWidth, v.line+1)
+				for i, ch := range numStr {
+					sc.tcell.SetCell(col+i, startY+y, sc.palette.LineNum, ch)
+				}
+				col += runewidth.StringWidth(numStr)
+			} else {
+				// Continuation row: blank gutter aligned with the line-number area
+				for i := 0; i < numWidth+1; i++ {
+					sc.tcell.SetCell(col+i, startY+y, sc.palette.LineNum, ' ')
+				}
+				col += numWidth + 1
 			}
-			col += runewidth.StringWidth(numStr)
-		}
-
-		// Separator after line numbers
-		if ed.ShowLineNum {
 			sc.tcell.SetCell(col, startY+y, sc.palette.LineNum, '│')
 			col++
 		}
 
-		// Line content — use runewidth + selection highlight
-		// View mode: dim text
+		// Line content within this visual row — selection aware, runewidth aware
 		baseStyle := sc.palette.Default
 		if ed.Mode == editor.ModeView {
 			baseStyle = sc.palette.ViewDim
 		}
 		runeIdx := 0
 		for _, ch := range line {
+			if runeIdx < v.start {
+				runeIdx++
+				continue
+			}
+			if runeIdx >= v.end {
+				break
+			}
 			style := baseStyle
-			if ed.Selection.Active() && ed.Selection.Contains(runeIdx, actualY) {
+			if ed.Selection.Active() && ed.Selection.Contains(runeIdx, v.line) {
 				style = sc.palette.Selection
 			}
 			w := runewidth.RuneWidth(ch)
@@ -69,11 +84,9 @@ func (sc *Screen) Render() {
 			runeIdx++
 		}
 
-		// Fill rest of line
+		// Fill rest of the row with background
 		for col < sc.width {
-			if col < sc.width {
-				sc.tcell.SetCell(col, startY+y, sc.palette.Default, ' ')
-			}
+			sc.tcell.SetCell(col, startY+y, sc.palette.Default, ' ')
 			col++
 		}
 	}
@@ -96,18 +109,24 @@ func (sc *Screen) Render() {
 	// --- 7. Command palette overlay ---
 	sc.cmdPalette.Render(sc.tcell, sc.width, sc.height)
 
-	// --- 6. Cursor — calculate visual column using runewidth ---
-	line := buf.Line(ed.Cursor.Y)
+	// --- 6. Cursor — position within the soft-wrapped visual row ---
+	cvr := sc.cursorVisualRow()
+	cy := cvr - sc.scrollOffset + startY
+
+	// Visual column = width of runes from the visual row's start up to the cursor.
+	var vr visualRow
+	if cvr >= 0 && cvr < len(sc.vm) {
+		vr = sc.vm[cvr]
+	}
+	line := buf.Line(vr.line)
 	cx := 0
 	runeIdx := 0
 	for _, ch := range line {
-		if runeIdx >= ed.Cursor.X {
-			break
+		if runeIdx >= vr.start && runeIdx < ed.Cursor.X {
+			cx += runewidth.RuneWidth(ch)
 		}
-		cx += runewidth.RuneWidth(ch)
 		runeIdx++
 	}
-	cy := ed.Cursor.Y - sc.scrollOffset + startY
 	if ed.ShowLineNum {
 		n := buf.Lines()
 		wn := 0

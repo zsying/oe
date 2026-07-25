@@ -14,17 +14,31 @@ func TestCursorBasic(t *testing.T) {
 		t.Fatalf("expected (1,0), got (%d,%d)", c.X, c.Y)
 	}
 
-	// Move to end and beyond
-	for i := 0; i < 10; i++ {
+	// Moving right past the end of a line wraps to the next line's start
+	for c.Y == 0 {
 		c.MoveRight(b)
 	}
-	if c.X != 5 || c.Y != 0 {
-		t.Fatalf("expected (5,0) clamped, got (%d,%d)", c.X, c.Y)
+	if c.X != 0 || c.Y != 1 {
+		t.Fatalf("expected wrap to (0,1), got (%d,%d)", c.X, c.Y)
 	}
 
-	// Move down to shorter line
+	// Moving right repeatedly reaches the last line's start, then its end
+	for c.Y < 2 {
+		c.MoveRight(b)
+	}
+	if c.X != 0 || c.Y != 2 {
+		t.Fatalf("expected (0,2) at start of last line, got (%d,%d)", c.X, c.Y)
+	}
+	for c.X < 3 {
+		c.MoveRight(b)
+	}
+	if c.X != 3 || c.Y != 2 {
+		t.Fatalf("expected (3,2) at end of last line, got (%d,%d)", c.X, c.Y)
+	}
+
+	// Move down clamps X to the shorter line length
 	c.Y = 0
-	c.X = 5 // past end of line 2 (world = 5)
+	c.X = 5 // end of "hello"
 	c.MoveDown(b)
 	if c.Y != 1 {
 		t.Fatalf("expected y=1, got %d", c.Y)
@@ -32,10 +46,8 @@ func TestCursorBasic(t *testing.T) {
 	if c.X != 5 {
 		t.Fatalf("X should be clamped; expected 5, got %d (world has length 5)", c.X)
 	}
-	// Actually world has 5 runes (w-o-r-l-d), so X=5 is at end, which is fine
 
-	// Move down to shorter line (foo = 3)
-	c.MoveDown(b)
+	c.MoveDown(b) // to "foo" (len 3)
 	if c.Y != 2 {
 		t.Fatalf("expected y=2, got %d", c.Y)
 	}
@@ -43,18 +55,43 @@ func TestCursorBasic(t *testing.T) {
 		t.Fatalf("X should clamp to 3 (foo length), got %d", c.X)
 	}
 
-	// Move left
+	// Move left stays within the line
 	c.MoveLeft(b)
 	if c.X != 2 {
 		t.Fatalf("expected x=2, got %d", c.X)
 	}
+}
 
-	// Move left to 0
-	for i := 0; i < 5; i++ {
-		c.MoveLeft(b)
+func TestCursorCrossLine(t *testing.T) {
+	b := New()
+	b.InsertText("hello\nworld\nfoo", 0, 0)
+
+	// Left at the start of line 1 wraps to the end of line 0 ("hello" len 5)
+	c := &Cursor{Y: 1, X: 0}
+	c.MoveLeft(b)
+	if c.X != 5 || c.Y != 0 {
+		t.Fatalf("expected (5,0), got (%d,%d)", c.X, c.Y)
 	}
-	if c.X != 0 {
-		t.Fatalf("expected x=0, got %d", c.X)
+
+	// Right at the end of line 0 wraps to the start of line 1
+	c = &Cursor{Y: 0, X: 5}
+	c.MoveRight(b)
+	if c.X != 0 || c.Y != 1 {
+		t.Fatalf("expected (0,1), got (%d,%d)", c.X, c.Y)
+	}
+
+	// Left at the very top stays put
+	c = &Cursor{Y: 0, X: 0}
+	c.MoveLeft(b)
+	if c.X != 0 || c.Y != 0 {
+		t.Fatalf("expected (0,0), got (%d,%d)", c.X, c.Y)
+	}
+
+	// Right at the very bottom stays put
+	c = &Cursor{Y: 2, X: 3}
+	c.MoveRight(b)
+	if c.X != 3 || c.Y != 2 {
+		t.Fatalf("expected (3,2), got (%d,%d)", c.X, c.Y)
 	}
 }
 
@@ -143,5 +180,82 @@ func TestCursorBoundaries(t *testing.T) {
 	c.MoveDown(b)
 	if c.X != 0 || c.Y != 0 {
 		t.Fatalf("expected (0,0) on empty buffer, got (%d,%d)", c.X, c.Y)
+	}
+}
+
+func TestCursorWordMove(t *testing.T) {
+	b := New()
+	b.InsertText("hello world\nfoo bar baz", 0, 0)
+
+	// Ctrl+Right from start of "hello" jumps to start of "world" (x=6)
+	c := &Cursor{Y: 0, X: 0}
+	c.MoveWordRight(b)
+	if c.X != 6 || c.Y != 0 {
+		t.Fatalf("expected (6,0), got (%d,%d)", c.X, c.Y)
+	}
+
+	// Another Ctrl+Right: end of "world" (x=11)
+	c.MoveWordRight(b)
+	if c.X != 11 || c.Y != 0 {
+		t.Fatalf("expected (11,0), got (%d,%d)", c.X, c.Y)
+	}
+
+	// Another Ctrl+Right crosses into next line start of "foo" (0,1)
+	c.MoveWordRight(b)
+	if c.X != 0 || c.Y != 1 {
+		t.Fatalf("expected (0,1), got (%d,%d)", c.X, c.Y)
+	}
+
+	// Ctrl+Left from middle of "bar" (x=7 within "foo bar baz") -> start of "bar" (x=4)
+	c = &Cursor{Y: 1, X: 7}
+	c.MoveWordLeft(b)
+	if c.X != 4 || c.Y != 1 {
+		t.Fatalf("expected (4,1), got (%d,%d)", c.X, c.Y)
+	}
+
+	// Ctrl+Left from start of "foo" wraps to end of previous line (11,0)
+	c = &Cursor{Y: 1, X: 0}
+	c.MoveWordLeft(b)
+	if c.X != 11 || c.Y != 0 {
+		t.Fatalf("expected (11,0), got (%d,%d)", c.X, c.Y)
+	}
+
+	// Ctrl+Right at very bottom stays put
+	c = &Cursor{Y: 1, X: 11}
+	c.MoveWordRight(b)
+	if c.X != 11 || c.Y != 1 {
+		t.Fatalf("expected (11,1), got (%d,%d)", c.X, c.Y)
+	}
+
+	// Ctrl+Left at very top stays put
+	c = &Cursor{Y: 0, X: 0}
+	c.MoveWordLeft(b)
+	if c.X != 0 || c.Y != 0 {
+		t.Fatalf("expected (0,0), got (%d,%d)", c.X, c.Y)
+	}
+}
+
+func TestCursorWordMoveSeparators(t *testing.T) {
+	b := New()
+	b.InsertText("foo   bar_baz.qux", 0, 0)
+
+	// From start, skip "foo" then the three spaces -> start of "bar_baz" (x=6)
+	c := &Cursor{Y: 0, X: 0}
+	c.MoveWordRight(b)
+	if c.X != 6 || c.Y != 0 {
+		t.Fatalf("expected (6,0), got (%d,%d)", c.X, c.Y)
+	}
+
+	// "bar_baz" is one word (underscore counts); skip it then the "." ->
+	// cursor lands at the start of the next word "qux" (x=14)
+	c.MoveWordRight(b)
+	if c.X != 14 || c.Y != 0 {
+		t.Fatalf("expected (14,0), got (%d,%d)", c.X, c.Y)
+	}
+
+	// Skip "qux" -> end of line (x=17)
+	c.MoveWordRight(b)
+	if c.X != 17 || c.Y != 0 {
+		t.Fatalf("expected (17,0), got (%d,%d)", c.X, c.Y)
 	}
 }
