@@ -3,6 +3,7 @@ package screen
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/mattn/go-runewidth"
@@ -58,6 +59,13 @@ func New(ed *editor.Editor) (*Screen, error) {
 	sc.fileBrowser = widgets.NewFileBrowser(ed)
 	sc.helpOverlay = widgets.NewHelpOverlay()
 	sc.dialog = widgets.NewDialog()
+
+	// On Unix, also route clipboard writes through the OSC 52 terminal escape
+	// sequence so copied text reaches the system clipboard reliably (works over
+	// SSH and inside tmux, independent of xclip/xsel/wl-clipboard).
+	if runtime.GOOS != "windows" {
+		ed.Clip.SetOSC52Writer(os.Stdout)
+	}
 
 	// Override dialog-requiring command handlers
 	ed.Commands.Find("file.open").Handler = func() error {
