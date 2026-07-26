@@ -306,24 +306,40 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 		sc.moveWithSelection(shift, func() { ed.Cursor.MoveDown(buf) })
 		return
 	case tcell.KeyHome:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if shift {
+			sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y)
+		}
 		ed.Cursor.MoveToStartOfLine()
-		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
+		if shift {
+			sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y)
+		}
 		return
 	case tcell.KeyEnd:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if shift {
+			sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y)
+		}
 		ed.Cursor.MoveToEndOfLine(buf)
-		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
+		if shift {
+			sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y)
+		}
 		return
 	case tcell.KeyPgUp:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if shift {
+			sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y)
+		}
 		ed.Cursor.MovePageUp(buf, sc.ContentHeight())
-		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
+		if shift {
+			sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y)
+		}
 		return
 	case tcell.KeyPgDn:
-		if shift { sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y) }
+		if shift {
+			sc.ed.Selection.Begin(ed.Cursor.X, ed.Cursor.Y)
+		}
 		ed.Cursor.MovePageDown(buf, sc.ContentHeight())
-		if shift { sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y) }
+		if shift {
+			sc.ed.Selection.Extend(ed.Cursor.X, ed.Cursor.Y)
+		}
 		return
 	}
 
@@ -348,8 +364,15 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 	case tcell.KeyCtrlO:
 		ed.Commands.Find("file.open").Handler()
 		return
+	case tcell.KeyCtrlY:
+		ed.Commands.Find("edit.redo").Handler()
+		return
 	case tcell.KeyCtrlZ:
-		ed.Commands.Find("edit.undo").Handler()
+		if shift {
+			ed.Commands.Find("edit.redo").Handler()
+		} else {
+			ed.Commands.Find("edit.undo").Handler()
+		}
 		return
 	case tcell.KeyCtrlF:
 		sc.searchBar.ToggleFind()
@@ -390,27 +413,54 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 	if ed.Mode == editor.ModeEdit {
 		switch ev.Key() {
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
-			ed.SaveSnapshot()
+			// With a selection, Backspace deletes the whole selection.
+			if ed.DeleteSelection() {
+				return
+			}
+			// No-op at the very start of the buffer: don't record a snapshot.
+			if ed.Cursor.X == 0 && ed.Cursor.Y == 0 {
+				return
+			}
+			ed.SaveSnapshot(editor.OpGeneric)
 			x, y := buf.DeleteBackward(ed.Cursor.X, ed.Cursor.Y)
 			ed.Cursor.X, ed.Cursor.Y = x, y
 			return
 		case tcell.KeyDelete:
-			ed.SaveSnapshot()
+			// With a selection, Delete removes the whole selection.
+			if ed.DeleteSelection() {
+				return
+			}
+			// No-op at the very end of the buffer: don't record a snapshot.
+			if ed.Cursor.X >= buf.LineLen(ed.Cursor.Y) && ed.Cursor.Y >= buf.Lines()-1 {
+				return
+			}
+			ed.SaveSnapshot(editor.OpGeneric)
 			buf.DeleteForward(ed.Cursor.X, ed.Cursor.Y)
 			return
 		case tcell.KeyEnter:
-			ed.SaveSnapshot()
+			replaced := ed.DeleteSelection()
+			if !replaced {
+				ed.SaveSnapshot(editor.OpGeneric)
+			}
 			x, y := buf.NewLine(ed.Cursor.X, ed.Cursor.Y)
 			ed.Cursor.X, ed.Cursor.Y = x, y
 			return
 		case tcell.KeyTab:
+			replaced := ed.DeleteSelection()
+			if !replaced {
+				ed.SaveSnapshot(editor.OpGeneric)
+			}
 			for i := 0; i < buf.TabWidth(); i++ {
 				buf.Insert(' ', ed.Cursor.X, ed.Cursor.Y)
 				ed.Cursor.X++
 			}
 			return
 		case tcell.KeyRune:
-			ed.SaveSnapshot()
+			// Typing over a selection replaces it with the typed character.
+			replaced := ed.DeleteSelection()
+			if !replaced {
+				ed.SaveSnapshot(editor.OpInsert)
+			}
 			buf.Insert(ev.Rune(), ed.Cursor.X, ed.Cursor.Y)
 			ed.Cursor.X++
 			return

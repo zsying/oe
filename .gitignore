@@ -2,6 +2,7 @@
 
 # outpu
 oe
+oe-linux-amd64
 *.exe
 *.dll
 

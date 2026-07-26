@@ -182,12 +182,49 @@ func TestCmdDeleteWithoutSelection(t *testing.T) {
 	}
 }
 
+func TestDeleteSelectionReplacesText(t *testing.T) {
+	e := New()
+	e.Mode = ModeEdit
+	e.Buffer.InsertText("hello world", 0, 0)
+
+	e.Selection.Begin(0, 0)
+	e.Selection.Extend(5, 0) // select "hello"
+
+	if !e.DeleteSelection() {
+		t.Fatal("expected DeleteSelection to report true")
+	}
+	if e.Buffer.Line(0) != " world" {
+		t.Fatalf("expected ' world', got %q", e.Buffer.Line(0))
+	}
+	if e.Cursor.X != 0 || e.Cursor.Y != 0 {
+		t.Fatalf("expected cursor (0,0), got (%d,%d)", e.Cursor.X, e.Cursor.Y)
+	}
+	if e.Selection.Active() {
+		t.Fatal("selection should be cleared after deletion")
+	}
+
+	// Undo restores the deleted text (single undo step).
+	e.RestoreSnapshot()
+	if e.Buffer.Line(0) != "hello world" {
+		t.Fatalf("expected undo to restore 'hello world', got %q", e.Buffer.Line(0))
+	}
+}
+
+func TestDeleteSelectionNoSelection(t *testing.T) {
+	e := New()
+	e.Mode = ModeEdit
+	e.Buffer.InsertText("abcd", 0, 0)
+	if e.DeleteSelection() {
+		t.Fatal("expected DeleteSelection to report false when no selection")
+	}
+}
+
 func TestSnapshotAndUndo(t *testing.T) {
 	e := New()
 	e.Buffer.InsertText("original", 0, 0)
 	e.Buffer.SetModified(false)
 
-	e.SaveSnapshot()
+	e.SaveSnapshot(OpGeneric)
 	e.Buffer.InsertText(" modified", 8, 0)
 
 	if e.Buffer.Line(0) != "original modified" {
@@ -200,6 +237,128 @@ func TestSnapshotAndUndo(t *testing.T) {
 	}
 	if e.Buffer.Line(0) != "original" {
 		t.Fatalf("expected 'original' after restore, got %q", e.Buffer.Line(0))
+	}
+}
+
+func TestCmdUndoRestoresContentAndCursor(t *testing.T) {
+	e := New()
+	e.Mode = ModeEdit
+	e.Buffer.InsertText("hello", 0, 0)
+	e.Cursor.X = 5 // end of line
+
+	e.SaveSnapshot(OpGeneric)
+	e.Buffer.Insert('!', 5, 0)
+	e.Cursor.X = 6
+
+	if e.Buffer.Line(0) != "hello!" {
+		t.Fatalf("expected 'hello!', got %q", e.Buffer.Line(0))
+	}
+
+	restored := e.RestoreSnapshot()
+	if !restored {
+		t.Fatal("expected restore to succeed")
+	}
+	if e.Buffer.Line(0) != "hello" {
+		t.Fatalf("expected undo to restore 'hello', got %q", e.Buffer.Line(0))
+	}
+	if e.Cursor.X != 5 || e.Cursor.Y != 0 {
+		t.Fatalf("expected cursor restored to (5,0), got (%d,%d)", e.Cursor.X, e.Cursor.Y)
+	}
+}
+
+// Typing a burst of characters should coalesce into a single undo step.
+func TestCmdUndoCoalescesTyping(t *testing.T) {
+	e := New()
+	e.Mode = ModeEdit
+
+	// Simulate typing "abc" one rune at a time (as the screen layer does).
+	for _, ch := range "abc" {
+		e.SaveSnapshot(OpInsert)
+		e.Buffer.Insert(ch, e.Cursor.X, e.Cursor.Y)
+		e.Cursor.X++
+	}
+
+	// Only one snapshot should be on the stack for the burst.
+	if len(e.undoStack) != 1 {
+		t.Fatalf("expected 1 coalesced snapshot, got %d", len(e.undoStack))
+	}
+	if e.Buffer.Line(0) != "abc" {
+		t.Fatalf("expected 'abc', got %q", e.Buffer.Line(0))
+	}
+
+	// A single undo reverts the whole burst.
+	if !e.RestoreSnapshot() {
+		t.Fatal("expected restore to succeed")
+	}
+	if e.Buffer.Line(0) != "" {
+		t.Fatalf("expected empty buffer after undo, got %q", e.Buffer.Line(0))
+	}
+	if e.Cursor.X != 0 || e.Cursor.Y != 0 {
+		t.Fatalf("expected cursor restored to (0,0), got (%d,%d)", e.Cursor.X, e.Cursor.Y)
+	}
+}
+
+// Undo then redo should return to the state right before the undo.
+func TestCmdUndoAndRedo(t *testing.T) {
+	e := New()
+	e.Mode = ModeEdit
+	e.Buffer.InsertText("hello", 0, 0)
+	e.Cursor.X = 5
+
+	e.SaveSnapshot(OpGeneric)
+	e.Buffer.Insert('!', 5, 0)
+	e.Cursor.X = 6
+
+	// Undo
+	if !e.RestoreSnapshot() {
+		t.Fatal("undo should succeed")
+	}
+	if e.Buffer.Line(0) != "hello" {
+		t.Fatalf("after undo expected 'hello', got %q", e.Buffer.Line(0))
+	}
+
+	// Redo
+	if !e.Redo() {
+		t.Fatal("redo should succeed")
+	}
+	if e.Buffer.Line(0) != "hello!" {
+		t.Fatalf("after redo expected 'hello!', got %q", e.Buffer.Line(0))
+	}
+	if e.Cursor.X != 6 || e.Cursor.Y != 0 {
+		t.Fatalf("after redo expected cursor (6,0), got (%d,%d)", e.Cursor.X, e.Cursor.Y)
+	}
+
+	// No more redo
+	if e.Redo() {
+		t.Fatal("redo should be exhausted")
+	}
+}
+
+// A new edit after undo clears the redo history.
+func TestCmdUndoThenEditClearsRedo(t *testing.T) {
+	e := New()
+	e.Mode = ModeEdit
+	e.Buffer.InsertText("hello", 0, 0)
+
+	e.SaveSnapshot(OpGeneric)
+	e.Buffer.Insert('!', 5, 0)
+	e.Cursor.X = 6
+
+	e.RestoreSnapshot() // undo -> "hello", redo has the "hello!" state
+
+	if e.Buffer.Line(0) != "hello" {
+		t.Fatalf("expected 'hello' after undo, got %q", e.Buffer.Line(0))
+	}
+
+	// New edit invalidates redo
+	e.SaveSnapshot(OpGeneric)
+	e.Buffer.Insert('?', 5, 0)
+
+	if e.Redo() {
+		t.Fatal("redo should be cleared after a new edit")
+	}
+	if e.Buffer.Line(0) != "hello?" {
+		t.Fatalf("expected 'hello?', got %q", e.Buffer.Line(0))
 	}
 }
 
@@ -302,8 +461,8 @@ func TestCommandRegistryFindModifyReflectsInAll(t *testing.T) {
 func TestCommandRegistryAll(t *testing.T) {
 	e := New()
 	all := e.Commands.All()
-	if len(all) != 17 {
-		t.Fatalf("expected 17 commands, got %d", len(all))
+	if len(all) != 18 {
+		t.Fatalf("expected 18 commands, got %d", len(all))
 	}
 
 	// Check specific commands exist

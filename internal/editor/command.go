@@ -23,6 +23,7 @@ func NewCommandRegistry(ed *Editor) *CommandRegistry {
 		{ID: "file.new", Title: "New File", Shortcut: "", Handler: ed.cmdNew},
 		{ID: "app.quit", Title: "Quit", Shortcut: "Ctrl+Q", Handler: ed.cmdQuit},
 		{ID: "edit.undo", Title: "Undo", Shortcut: "Ctrl+Z", Handler: ed.cmdUndo},
+		{ID: "edit.redo", Title: "Redo", Shortcut: "Ctrl+Y / Ctrl+Shift+Z", Handler: ed.cmdRedo},
 		{ID: "edit.cut", Title: "Cut", Shortcut: "Ctrl+X", Handler: ed.cmdCut},
 		{ID: "edit.copy", Title: "Copy", Shortcut: "Ctrl+C", Handler: ed.cmdCopy},
 		{ID: "edit.paste", Title: "Paste", Shortcut: "Ctrl+V", Handler: ed.cmdPaste},
