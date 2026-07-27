@@ -19,12 +19,9 @@ type Clipboard struct {
 	osc52 io.Writer
 }
 
-// New creates a new clipboard wrapper and detects system clipboard availability.
+// New creates a new clipboard wrapper.
 func New() Clipboard {
-	c := Clipboard{}
-	err := clipboard.WriteAll("")
-	c.avail = err == nil
-	return c
+	return Clipboard{}
 }
 
 // SetOSC52Writer enables clipboard writes through the OSC 52 escape sequence.
@@ -38,13 +35,15 @@ func (c *Clipboard) Available() bool { return c.avail || c.osc52 != nil }
 
 // Read returns clipboard text from system clipboard or internal fallback.
 func (c *Clipboard) Read() (string, error) {
-	if c.avail {
-		text, err := clipboard.ReadAll()
-		if err == nil && text != "" {
-			return text, nil
-		}
+	if c.internal != "" {
+		return c.internal, nil
 	}
-	return c.internal, nil
+	// Try system clipboard library (xsel/xclip on Linux, pbcopy on macOS, win32 on Windows)
+	text, err := clipboard.ReadAll()
+	if err == nil && text != "" {
+		return text, nil
+	}
+	return "", nil
 }
 
 // Write saves text to the OSC 52 terminal clipboard (when enabled), the system

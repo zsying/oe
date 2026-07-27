@@ -320,9 +320,12 @@ func (fb *FileBrowser) handleKeyList(ev *tcell.EventKey) bool {
 		if fb.selIdx > 0 {
 			fb.selIdx--
 		} else {
-			// At top — switch focus back to input
-			fb.focusOnList = false
-			return true
+			// Wrap to bottom (like command palette)
+			fb.selIdx = n - 1
+			fb.scrollOffset = n - maxFileResults
+			if fb.scrollOffset < 0 {
+				fb.scrollOffset = 0
+			}
 		}
 		if fb.selIdx < fb.scrollOffset {
 			fb.scrollOffset = fb.selIdx
@@ -333,9 +336,9 @@ func (fb *FileBrowser) handleKeyList(ev *tcell.EventKey) bool {
 		if fb.selIdx < n-1 {
 			fb.selIdx++
 		} else {
-			// At bottom — switch focus back to input
-			fb.focusOnList = false
-			return true
+			// Wrap to top (like command palette)
+			fb.selIdx = 0
+			fb.scrollOffset = 0
 		}
 		if fb.selIdx >= fb.scrollOffset+maxFileResults {
 			fb.scrollOffset = fb.selIdx - maxFileResults + 1

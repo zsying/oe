@@ -409,7 +409,7 @@ func (sc *Screen) handleKey(ev *tcell.EventKey) {
 		return
 	}
 
-	// Edit mode keys
+	// Edit mode keys — all operations respect active selection (replace or delete)
 	if ed.Mode == editor.ModeEdit {
 		switch ev.Key() {
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
